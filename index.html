@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#171717">
+<title>Harry’s Radius of Pathetic-ness</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--bg:#111;--panel:#1c1c1c;--ink:#f5f2e9;--muted:#aaa;--acid:#d7ff42;--line:#353535}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:22px 18px 16px;background:linear-gradient(135deg,#252525,#111);border-bottom:1px solid var(--line)}
+.kicker{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--acid);font-weight:800}
+h1{font-size:clamp(27px,7vw,42px);line-height:.98;margin:9px 0 8px;max-width:650px;letter-spacing:-.045em}
+h1 span{color:var(--acid)}.sub{color:var(--muted);font-size:13px}
+main{max-width:1100px;margin:auto;padding:14px;display:grid;gap:14px}
+.controls{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+button{border:0;border-radius:999px;padding:12px 16px;font-weight:800;background:var(--acid);color:#111;cursor:pointer}
+button.secondary{background:#303030;color:var(--ink);border:1px solid #444}
+.status{font-size:12px;color:var(--muted);margin-left:auto}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
+.stat b{display:block;font-size:25px;color:var(--acid)}.stat small{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.12em}
+#map{height:min(56vh,520px);min-height:330px;border-radius:17px;border:1px solid var(--line);overflow:hidden;background:#242424}
+.bottom{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr);gap:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:15px}
+.panel h2{font-size:16px;margin:0 0 12px}.hint{font-size:12px;color:var(--muted);line-height:1.5}
+#places{display:grid;gap:8px;max-height:330px;overflow:auto}
+.place{display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;background:#262626;border:1px solid #383838}
+.icon{width:34px;height:34px;display:grid;place-items:center;background:#353b20;border-radius:10px;font-size:17px;flex:none}
+.place strong{display:block;font-size:13px}.place small{color:var(--muted);font-size:11px}
+.empty{padding:18px;text-align:center;color:var(--muted);font-size:13px}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#202020;color:#fff}
+.leaflet-control-attribution{font-size:9px!important}
+footer{text-align:center;color:#777;font-size:10px;padding:4px 12px 20px}
+@media(max-width:700px){.bottom{grid-template-columns:1fr}.status{width:100%;margin:0}.stats{gap:7px}.stat{padding:10px}.stat b{font-size:22px}}
+</style>
+</head>
+<body>
+<header>
+ <div class="kicker">The official 100-metre zone of questionable excitement</div>
+ <h1>HARRY’S RADIUS<br>OF <span>PATHETIC-NESS</span></h1>
+ <div class="sub">A tiny circle. A big promise. Absolutely no guarantee of anything worth seeing.</div>
+</header>
+<main>
+ <div class="controls">
+  <button id="locate">◎ Find my location</button>
+  <button class="secondary" id="refresh">↻ Refresh attractions</button>
+  <div class="status" id="status">Waiting for location permission…</div>
+ </div>
+ <section class="stats">
+  <div class="stat"><b id="count">—</b><small>Places in range</small></div>
+  <div class="stat"><b>100 m</b><small>Radius of pathetic-ness</small></div>
+  <div class="stat"><b id="coords">—</b><small>Current position</small></div>
+ </section>
+ <div id="map" aria-label="Map showing your location and a 100 metre radius"></div>
+ <div class="bottom">
+  <section class="panel">
+   <h2>🎯 Within Harry’s radius of pathetic-ness</h2>
+   <div id="places"><div class="empty">Find your location to reveal nearby places.</div></div>
+  </section>
+  <aside class="panel">
+   <h2>How it works</h2>
+   <p class="hint">1. Tap <b>Find my location</b> and allow location access.<br><br>
+   2. The map draws a 100-metre circle around you.<br><br>
+   3. Nearby places are grouped into Food, Beer, Laundry, Attractions and Other. The list and map show places found within 100 metres.<br><br>
+   The attraction data comes from OpenStreetMap contributors. Results depend on what has been mapped nearby. Location access generally requires HTTPS or localhost.</p>
+  </aside>
+ </div>
+</main>
+<footer>HARRY’S RADIUS OF PATHETIC-NESS · Powered by OpenStreetMap · Stay inside the circle, if you can.</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const RADIUS=100;
+const map=L.map('map',{zoomControl:true}).setView([51.505,-0.09],16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
+let userMarker=null, circle=null, attractionLayer=L.layerGroup().addTo(map), current=null;
+const $=id=>document.getElementById(id);
+function setStatus(s){$('status').textContent=s}
+function esc(s){return String(s||'Unnamed attraction').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function category(tags){
+ const amenity=tags.amenity||'', shop=tags.shop||'', tourism=tags.tourism||'';
+ if(['restaurant','cafe','fast_food','food_court','ice_cream','bar','pub','biergarten'].includes(amenity) || ['bakery','confectionery','butcher','cheese','deli','greengrocer','supermarket'].includes(shop)) {
+   if(['bar','pub','biergarten'].includes(amenity)) return {label:'Beer',icon:'🍺'};
+   return {label:'Food',icon:'🍕'};
+ }
+ if(['laundry','dry_cleaning'].includes(shop) || ['洗衣','laundry'].includes(amenity)) return {label:'Laundry',icon:'🧺'};
+ if(['bar','pub','biergarten'].includes(amenity)) return {label:'Beer',icon:'🍺'};
+ if(tourism || tags.historic || tags.leisure==='park' || ['theatre','arts_centre','place_of_worship'].includes(amenity)) return {label:'Attractions',icon:'🏛️'};
+ return {label:'Other',icon:'📍'};
+}
+function showPlaces(items){
+ $('count').textContent=items.length;
+ const list=$('places'); list.innerHTML='';
+ if(!items.length){
+  list.innerHTML='<div class="empty">Nothing within 100 metres.</div>';
+  setTimeout(()=>alert('you’re Pathetic'),150);
+  return;
+ }
+ const groups=['Food','Beer','Laundry','Attractions','Other'];
+ for(const group of groups){
+  const matches=items.filter(p=>p.category.label===group).sort((a,b)=>a.distance-b.distance);
+  if(!matches.length) continue;
+  const heading=document.createElement('div');
+  heading.style.cssText='font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:#d7ff42;padding:9px 2px 2px';
+  heading.textContent=group;list.appendChild(heading);
+  for(const p of matches){
+   const name=p.tags.name||p.tags['name:en']||p.tags.tourism||p.tags.amenity||p.tags.shop||p.tags.historic||'Unnamed place';
+   const el=document.createElement('div');el.className='place';
+   el.innerHTML=`<div class="icon">${p.category.icon}</div><div><strong>${esc(name)}</strong><small>${esc(p.category.label)} · ${Math.round(p.distance)} m away</small></div>`;
+   el.addEventListener('click',()=>map.setView([p.lat,p.lon],19));list.appendChild(el);
+  }
+ }
+}
+function distance(a,b){
+ const R=6371000,rad=x=>x*Math.PI/180,dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon);
+ const x=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
+ return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+async function loadAttractions(){
+ if(!current){setStatus('Find your location first.');return}
+ setStatus('Looking for things to do…');$('places').innerHTML='<div class="empty">Scanning the pathetic-ness radius…</div>';
+ const {lat,lon}=current;
+ const query=`[out:json][timeout:20];(
+ node(around:100,${lat},${lon})[amenity~"restaurant|cafe|fast_food|food_court|ice_cream|bar|pub|biergarten|theatre|arts_centre|place_of_worship"];
+ way(around:100,${lat},${lon})[amenity~"restaurant|cafe|fast_food|food_court|ice_cream|bar|pub|biergarten|theatre|arts_centre|place_of_worship"];
+ node(around:100,${lat},${lon})[shop~"bakery|confectionery|butcher|cheese|deli|greengrocer|supermarket|laundry|dry_cleaning"];
+ way(around:100,${lat},${lon})[shop~"bakery|confectionery|butcher|cheese|deli|greengrocer|supermarket|laundry|dry_cleaning"];
+ node(around:100,${lat},${lon})[tourism];
+ way(around:100,${lat},${lon})[tourism];
+ node(around:100,${lat},${lon})[historic];
+ way(around:100,${lat},${lon})[historic];
+ node(around:100,${lat},${lon})[leisure=park];
+ way(around:100,${lat},${lon})[leisure=park];
+);out center tags;`;
+ try{
+  const res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:query,headers:{'Content-Type':'text/plain'}});
+  if(!res.ok) throw new Error('Map data service is busy. Try again shortly.');
+  const data=await res.json(), seen=new Set(), found=[];
+  attractionLayer.clearLayers();
+  for(const e of data.elements||[]){
+   const plat=e.lat??e.center?.lat, plon=e.lon??e.center?.lon;if(plat==null||plon==null)continue;
+   const d=distance(current,{lat:plat,lon:plon});if(d>100)continue;
+   const key=e.type+'/'+e.id;if(seen.has(key))continue;seen.add(key);
+   const tags=e.tags||{}, cat=category(tags);
+   const p={lat:plat,lon:plon,distance:d,tags,category:cat};found.push(p);
+   L.marker([plat,plon]).bindPopup(`<b>${esc(tags.name||'Unnamed place')}</b><br>${esc(cat.label)} · ${Math.round(d)} m`).addTo(attractionLayer);
+  }
+  showPlaces(found);setStatus(`${found.length} attraction${found.length===1?'':'s'} found within 100 m.`);
+ }catch(err){setStatus(err.message||'Could not load attractions.');$('places').innerHTML='<div class="empty">Could not retrieve map data. Check your connection and try again.</div>'}
+}
+function locate(){
+ if(!navigator.geolocation){setStatus('This browser does not support location.');return}
+ setStatus('Finding you…');
+ navigator.geolocation.getCurrentPosition(pos=>{
+  current={lat:pos.coords.latitude,lon:pos.coords.longitude};
+  $('coords').textContent=`${current.lat.toFixed(4)}, ${current.lon.toFixed(4)}`;
+  if(userMarker)map.removeLayer(userMarker);if(circle)map.removeLayer(circle);
+  userMarker=L.marker([current.lat,current.lon]).addTo(map).bindPopup('<b>You are here.</b><br>Centre of the pathetic-ness.').openPopup();
+  circle=L.circle([current.lat,current.lon],{radius:RADIUS,color:'#b4d52d',weight:3,fillColor:'#d7ff42',fillOpacity:.17}).addTo(map);
+  map.fitBounds(circle.getBounds(),{padding:[25,25]});loadAttractions();
+ },err=>{setStatus(err.code===1?'Location permission denied. Allow it in browser settings.':'Could not get your location. Try again.');},{enableHighAccuracy:true,timeout:15000,maximumAge:10000});
+}
+$('locate').addEventListener('click',locate);$('refresh').addEventListener('click',loadAttractions);
+</script>
+</body></html>
